@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: bautec
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_VERSION
+        value: 24.22.1
+      - key: DATABASE_URL
+        sync: false
+      - key: BAUTEC_SETUP_TOKEN
+        generateValue: true
