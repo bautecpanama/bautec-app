@@ -52,10 +52,44 @@ export async function createBautecServer({directory=root,sql,secureCookies=true,
  }catch(error){if(!res.headersSent)send(res,error.status||400,{error:(error.code==='23505'||error.message.includes('UNIQUE'))?'Ese correo ya está registrado.':(error.status||!error.code)?error.message:'No se pudo completar la operación de datos.'});else res.end()}};
  const server=createServer((req,res)=>{handler(req,res).catch(()=>{if(!res.headersSent)send(res,500,{error:'Error interno.'});else res.end()})});server.requestTimeout=30000;server.headersTimeout=15000;server.on('close',()=>{sql.close().catch(()=>{})});return server;
 }
+// Diagnóstico de arranque: solo mensajes permitidos; nunca URI, contraseña o stack.
+export function describeStartupError(error){
+ const messages={
+  '28P01':'Contraseña de base de datos rechazada. Actualiza DATABASE_URL con la contraseña vigente y codificada.',
+  '28000':'Usuario de base de datos rechazado. Revisa el usuario completo del Session pooler.',
+  '3D000':'La base de datos indicada no existe. Revisa que la URI termine en /postgres.',
+  '42501':'La conexión funciona, pero el usuario no tiene permisos para preparar las tablas.',
+  '42P01':'No se encontró una tabla del esquema Bautec. Revisar la inicialización y el esquema.',
+  '42704':'El servidor rechazó una opción de conexión o un objeto requerido.',
+  '08P01':'El pooler rechazó una opción de conexión. Revisar el método Session pooler y puerto 5432.',
+  '53300':'Se alcanzó el límite de conexiones de la base de datos.',
+  'ENOTFOUND':'No se encontró el servidor. Revisa el host de la URI del Session pooler.',
+  'EAI_AGAIN':'El nombre del servidor no pudo resolverse temporalmente.',
+  'ECONNREFUSED':'El servidor rechazó la conexión. Revisa host, puerto y estado del proyecto Supabase.',
+  'ETIMEDOUT':'La conexión agotó el tiempo de espera. Revisa disponibilidad y restricciones de red.',
+  'ENETUNREACH':'La dirección de red no es accesible. Usa el Session pooler compatible con IPv4.',
+  'ECONNRESET':'La conexión se interrumpió durante el arranque.',
+  'SELF_SIGNED_CERT_IN_CHAIN':'Falta la CA de confianza de Supabase. Configura BAUTEC_DB_CA_FILE con su certificado; mantener la validación TLS.',
+  'DEPTH_ZERO_SELF_SIGNED_CERT':'Certificado de base de datos no confiable. Configura la CA de Supabase.',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE':'No se pudo verificar el certificado de la base. Configura la CA de Supabase.',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY':'Falta el certificado emisor de confianza. Configura la CA de Supabase.',
+  'CERT_HAS_EXPIRED':'El certificado de conexión está vencido.',
+  'ERR_TLS_CERT_ALTNAME_INVALID':'El certificado no corresponde al host. Revisa la URI de Supabase.',
+  'ERR_INVALID_URL':'DATABASE_URL no tiene formato de URI válido. Usa la dirección completa postgresql://...',
+  'ENOENT':'Falta un archivo requerido de la aplicación o el certificado CA configurado.',
+  'ERR_MODULE_NOT_FOUND':'Falta una dependencia. Configura Build Command como npm ci.'
+ };
+ if(messages[error?.code])return messages[error.code];
+ if(error?.message==='Falta DATABASE_URL.')return 'Falta la variable DATABASE_URL en Render.';
+ if(error?.message==='La clave de activación debe tener al menos 32 caracteres.')return 'BAUTEC_SETUP_TOKEN debe tener al menos 32 caracteres. Usa Generate.';
+ if(error?.message==='Connection terminated due to connection timeout')return messages.ETIMEDOUT;
+ return 'Fallo de arranque aún no identificado. Revisar variables privadas y conexión sin publicar sus valores.';
+}
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- try{const sql=await createStore();const server=await createBautecServer({sql,setupToken:process.env.BAUTEC_SETUP_TOKEN||''});
+ let sql;
+ try{sql=await createStore();const server=await createBautecServer({sql,setupToken:process.env.BAUTEC_SETUP_TOKEN||''});
  server.listen(Number(process.env.PORT||8787),'0.0.0.0',()=>console.log('Bautec: servicio iniciado.'));
  server.on('error',()=>{console.error('No se pudo iniciar el servicio.');process.exitCode=1});
  for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>server.close(()=>process.exit(0)));
- }catch{console.error('No se pudo conectar con la base de datos. Revisa la configuración privada.');process.exitCode=1}
+ }catch(error){console.error('Bautec: '+describeStartupError(error));if(sql)await sql.close().catch(()=>{});process.exitCode=1}
 }
